@@ -1,0 +1,4 @@
+selenium>=4.15.0
+openai>=1.0.0
+python-dotenv>=1.0.0
+pytz>=2023.3 
