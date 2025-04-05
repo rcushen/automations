@@ -71,31 +71,20 @@ def setup_driver():
     """Set up and return a Selenium WebDriver instance."""
     chrome_options = Options()
 
-    # Run in headless mode (required for most VMs/servers)
-    chrome_options.add_argument("--headless=new")  # new headless mode for newer versions
-
-    # Memory-saving options
-    chrome_options.add_argument("--disable-gpu")
+    # Essential options for headless operation
+    chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--disable-extensions")
-    chrome_options.add_argument("--disable-software-rasterizer")
-    chrome_options.add_argument("--window-size=1920,1080")
-
-    # Additional memory optimization
-    chrome_options.add_argument("--js-flags=--expose-gc")
-    chrome_options.add_argument("--single-process")
-    chrome_options.add_argument("--disable-application-cache")
-    chrome_options.add_argument("--media-cache-size=0")
-    chrome_options.add_argument("--disk-cache-size=0")
-    chrome_options.add_argument("--aggressive-cache-discard")
-    chrome_options.add_argument("--disable-component-extensions-with-background-pages")
-
-    # Set a realistic user agent for Linux
+    chrome_options.add_argument("--disable-gpu")
+    
+    # Minimal window size
+    chrome_options.add_argument("--window-size=1280,720")
+    
+    # Basic user agent
     chrome_options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 
-    # Create the driver using the Chromium binary
-    service = Service('/usr/bin/chromedriver')  # Specify the ChromeDriver path
+    # Create the driver
+    service = Service('/usr/bin/chromedriver')
     driver = webdriver.Chrome(service=service, options=chrome_options)
     return driver
 
