@@ -18,6 +18,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 import shutil
 from pathlib import Path
+import tempfile
 
 load_dotenv()
 
@@ -79,6 +80,10 @@ def setup_driver():
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--window-size=1920,1080")
+
+    # Set a unique user data directory for each session
+    user_data_dir = os.path.join(tempfile.gettempdir(), f"chrome_profile_{os.getpid()}")
+    chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
 
     # Set a realistic user agent
     chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
