@@ -71,31 +71,32 @@ def setup_driver():
     """Set up and return a Selenium WebDriver instance."""
     chrome_options = Options()
 
-    # Optional: Run in headless mode (no visible browser window)
-    # Uncomment the next line for headless mode
-    chrome_options.add_argument("--headless")
+    # Run in headless mode (required for most VMs/servers)
+    chrome_options.add_argument("--headless=new")  # new headless mode for newer versions
 
-    # These options help with stability and avoiding detection
+    # Memory-saving options
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--window-size=1920,1080")
     chrome_options.add_argument("--disable-extensions")
     chrome_options.add_argument("--disable-software-rasterizer")
-    chrome_options.add_argument("--disable-setuid-sandbox")
-    chrome_options.add_argument("--disable-web-security")
-    chrome_options.add_argument("--disable-features=VizDisplayCompositor")
-    chrome_options.add_argument("--disable-features=IsolateOrigins,site-per-process")
-    chrome_options.add_argument("--disable-site-isolation-trials")
-    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    chrome_options.add_experimental_option("useAutomationExtension", False)
+    chrome_options.add_argument("--window-size=1920,1080")
 
-    # Set a realistic user agent
-    chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+    # Additional memory optimization
+    chrome_options.add_argument("--js-flags=--expose-gc")
+    chrome_options.add_argument("--single-process")
+    chrome_options.add_argument("--disable-application-cache")
+    chrome_options.add_argument("--media-cache-size=0")
+    chrome_options.add_argument("--disk-cache-size=0")
+    chrome_options.add_argument("--aggressive-cache-discard")
+    chrome_options.add_argument("--disable-component-extensions-with-background-pages")
 
-    # Create the driver
-    driver = webdriver.Chrome(options=chrome_options)
+    # Set a realistic user agent for Linux
+    chrome_options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+
+    # Create the driver using the Chromium binary
+    service = Service('/usr/bin/chromedriver')  # Specify the ChromeDriver path
+    driver = webdriver.Chrome(service=service, options=chrome_options)
     return driver
 
 def fetch_and_parse():
