@@ -16,27 +16,25 @@ import logging
 import pytz
 from datetime import datetime
 from dotenv import load_dotenv
+import shutil
+from pathlib import Path
 
 load_dotenv()
 
 # Configuration
 EVENTBRITE_URL = "https://www.eventbrite.com.au/o/the-royal-womens-hospital-14895986073"
 STATE_FILE = "eventbrite_state.json"
-CHECK_INTERVAL = 300  # 5 minutes in seconds
 
-PUSHOVER_USER_KEY = "uta3qgo3z12jo2hbdatineo4psp849"
-PUSHOVER_API_TOKEN = "au9v4g85ua4ckv5bxp7qt7fc5ob76q"
+CHECK_INTERVAL = 300
 
 BABY_DUE_DATE = "2025-07-23"
 
-# Create job directory with timestamp in AEST
-aest = pytz.timezone('Australia/Sydney')
-now = datetime.now(aest)
+# Create job directory if it doesn't exist
+now = datetime.now(pytz.timezone('Australia/Sydney'))
 start_date = now.strftime("%Y-%m-%d")
 start_time = now.strftime("%H-%M-%S")
 job_dir = f"jobs/{start_date}_{start_time}"
 
-# Create directory if it doesn't exist
 os.makedirs(job_dir, exist_ok=True)
 
 # Setup logging to the job directory
@@ -54,8 +52,8 @@ def send_pushover_notification(message, title="Eventbrite Class Alert"):
         conn = http.client.HTTPSConnection("api.pushover.net:443")
         conn.request("POST", "/1/messages.json",
             urllib.parse.urlencode({
-                "token": PUSHOVER_API_TOKEN,
-                "user": PUSHOVER_USER_KEY,
+                "user": os.environ.get("PUSHOVER_USER_KEY"),
+                "token": os.environ.get("PUSHOVER_API_TOKEN"),
                 "title": title,
                 "message": message,
                 "priority": 1
@@ -74,7 +72,7 @@ def setup_driver():
 
     # Optional: Run in headless mode (no visible browser window)
     # Uncomment the next line for headless mode
-    # chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--headless")
 
     # These options help with stability and avoiding detection
     chrome_options.add_argument("--disable-gpu")
@@ -85,12 +83,12 @@ def setup_driver():
     # Set a realistic user agent
     chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 
-    # Create the driver (adjust path to your chromedriver location)
+    # Create the driver
     driver = webdriver.Chrome(options=chrome_options)
     return driver
 
 def fetch_and_parse():
-    """Fetch the Eventbrite page, click 'Upcoming', and parse the event cards."""
+    """Fetch the Eventbrite page, click 'Upcoming' multiple times, and parse the event cards."""
     driver = setup_driver()
     classes = []
 
@@ -123,7 +121,6 @@ def fetch_and_parse():
                     logger.info("No more 'Show more' buttons found.")
                     break
 
-
                 # Try clicking the button
                 button = show_more_buttons[0]
                 try:
@@ -150,7 +147,6 @@ def fetch_and_parse():
         # Give the page one final pause to finish any loading
         time.sleep(2)
 
-
         # Wait for event cards to load
         logger.info("Waiting for the events grid container to load...")
         try:
@@ -165,8 +161,7 @@ def fetch_and_parse():
             logger.info(f"Found {total_cards} event cards in the grid")
 
         except TimeoutException:
-            logger.warning("Timeout waiting for future events container. Trying alternative approach...")
-
+            logger.warning("Timeout waiting for future events container.")
 
         # Parse each event card
         logger.info(f"Parsing {len(event_cards)} event cards...")
@@ -202,18 +197,22 @@ def fetch_and_parse():
                     "status": status,
                 }
                 classes.append(event_info)
+
             except Exception as e:
                 logger.error(f"Error parsing event card {i}: {e}")
                 continue
+
         # Debug information if no event cards found
         if not event_cards:
             logger.error("No event cards found. Taking screenshot for debugging...")
             driver.save_screenshot("debug_screenshot.png")
 
         return classes
+
     except Exception as e:
         logger.error(f"Error fetching or parsing Eventbrite page: {e}")
         return []
+
     finally:
         # Close the browser
         logger.info("Closing browser")
@@ -246,7 +245,7 @@ def enrich_classes(classes):
         # Call OpenAI API to extract the first date
         try:
             response = client.chat.completions.create(
-                model="gpt-4",  # or any other appropriate model
+                model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": "Extract the first date from the text and format it as YYYY-MM-DD. Only return the formatted date, nothing else."},
                     {"role": "user", "content": f"Extract the first date from this text: {dates_detail}"}
@@ -280,12 +279,32 @@ def decision_function(classes):
     """
     Assesses the enriched classes data and decides whether to send a push notification.
 
-    There are two cases:
+    There are three cases:
+        - Some classes have been added or removed, such that the number of classes is different to the last time we checked.
         - New classes before the target class have become available, after being Sold Out.
         - The target class has become available, as it is currently Not Yet On Sale.
 
     The target class is the one that has title containing: "July 5 + 12"
     """
+    # Check for class count changes
+    current_count = len(classes)
+    try:
+        with open(STATE_FILE, 'r') as f:
+            state = json.load(f)
+        previous_count = state.get('class_count', 28)  # Default to 28 if not found
+    except (FileNotFoundError, json.JSONDecodeError):
+        logger.warning("No state file found, defaulting to 28 classes")
+        previous_count = 28  # Default to 28 if file doesn't exist or is invalid
+
+    # Update state file with current count
+    with open(STATE_FILE, 'w') as f:
+        json.dump({'class_count': current_count}, f)
+
+    # Send notification if count has changed
+    if current_count != previous_count:
+        message = f"Number of classes has changed from {previous_count} to {current_count}!"
+        send_pushover_notification(message)
+        logger.info(f"Sent push notification for class count change: {previous_count} -> {current_count}")
 
     # Check the target class status
     target_class_found = False
@@ -339,13 +358,34 @@ def decision_function(classes):
         logger.info("Sent push notification for new class(es) before target class")
         return
 
-    logger.info("No push notification sent")
     return None
+
+def cleanup_old_jobs():
+    """Delete job directories that are more than 6 jobs old."""
+    jobs_dir = Path("jobs")
+    if not jobs_dir.exists():
+        return
+
+    # Get all job directories and sort them by creation time
+    job_dirs = sorted(jobs_dir.iterdir(), key=lambda x: x.stat().st_mtime)
+
+    # Keep only the 6 most recent directories
+    if len(job_dirs) > 6:
+        for old_dir in job_dirs[:-6]:
+            try:
+                shutil.rmtree(old_dir)
+                logger.info(f"Deleted old job directory: {old_dir}")
+            except Exception as e:
+                logger.error(f"Error deleting {old_dir}: {e}")
 
 def main():
     """Main function."""
+    # Clean up old job directories first
+    logger.info("Cleaning up old job directories")
+    cleanup_old_jobs()
 
     # Fetch and parse the Eventbrite page
+    logger.info("Fetching and parsing Eventbrite page")
     classes = fetch_and_parse()
     logger.info(f"Scraped {len(classes)} events")
 
@@ -354,26 +394,19 @@ def main():
     with open(raw_json_path, "w") as f:
         json.dump(classes, f, indent=2)
 
-    # # Read back in the raw results for further processing
-    # with open("eventbrite_classes_raw.json", "r") as f:
-    #     classes = json.load(f)
-
     # Use OpenAI to enrich the classes data
+    logger.info("Enriching classes data")
     classes_enriched = enrich_classes(classes)
-    logger.info(f"Tidied {len(classes_enriched)} events")
+    logger.info(f"Enriched {len(classes_enriched)} events")
 
     # Write results out to JSON
     enriched_json_path = os.path.join(job_dir, "eventbrite_classes_enriched.json")
     with open(enriched_json_path, "w") as f:
         json.dump(classes_enriched, f, indent=2)
-    logger.info("Wrote results to eventbrite_classes.json")
-
-
-    # # Read back in the enriched results for decision-making
-    # with open("eventbrite_classes_enriched.json", "r") as f:
-    #     classes_enriched = json.load(f)
+    logger.info("Wrote results to eventbrite_classes_enriched.json")
 
     # Decide whether to send a push notification
+    logger.info("Deciding whether to send a push notification")
     decision_function(classes_enriched)
 
     logger.info("Done")
