@@ -368,7 +368,8 @@ def cleanup_old_jobs():
         return
 
     # Get all job directories and sort them by creation time
-    job_dirs = sorted(jobs_dir.iterdir(), key=lambda x: x.stat().st_mtime)
+    job_dirs = [d for d in jobs_dir.iterdir() if d.is_dir()]
+    job_dirs = sorted(job_dirs, key=lambda x: x.stat().st_mtime)
 
     # Keep only the 6 most recent directories
     if len(job_dirs) > 6:
